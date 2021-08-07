@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: The infrastructure for voice-controlled photo album.
+Parameters:
+  S3BucketNameB2:
+    Description: The name of the S3 bucket to be created.
+    Type: String
+    Default: index-photos-bucket-b2
+  GitHubOwner:
+    Type: String
+    Default: phananh1096
+    AllowedPattern: "[A-Za-z0-9-]+"
+  GitHubRepo:
+    Type: String
+    Default: A2-Lambda-Functions 
+    AllowedPattern: "[A-Za-z0-9-]+"
+  GitHubBranch:
+    Type: String
+    Default: main
+    AllowedPattern: "[A-Za-z0-9-]+"
+  GitHubOAuthToken:
+    Type: String
+    Default: '2b811ae58dcf52fa7cd184ba29913137916248ba'
+    NoEcho: true
+    MinLength: 40
+    MaxLength: 40
+    AllowedPattern: '[a-z0-9]*'
+Resources:
+  CodePipelineProjectRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+                - cloudformation.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'Role for codepipeline and cloudformation.'
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      RoleName: 'CodeBuildAndCloudformationProjectRole'    
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        ArtifactIdentifier: lambda-pipeline-artifacts
+        # EncryptionDisabled: Boolean
+        # Location: lambda-bucket-assignment2
+        # Name: /
+        # NamespaceType: NONE
+        # OverrideArtifactName: Boolean
+        # Packaging: String
+        # Path: String
+        Type: CODEPIPELINE   
+      # BadgeEnabled: Boolean
+      # BuildBatchConfig: 
+      #   ProjectBuildBatchConfig
+      # Cache: 
+      #   ProjectCache
+      # ConcurrentBuildLimit: Integer
+      Description: 'code build project for lambda pipeline'
+      # EncryptionKey: String
+      Environment: 
+        # Certificate: String
+        ComputeType: BUILD_GENERAL1_SMALL
+        # EnvironmentVariables: 
+          # - EnvironmentVariable
+        Image: aws/codebuild/standard:5.0
+        # ImagePullCredentialsType: String
+        # PrivilegedMode: Boolean
+        # RegistryCredential: 
+        #   RegistryCredential
+        Type: LINUX_CONTAINER
+      # FileSystemLocations: 
+      #   - ProjectFileSystemLocation
+      # LogsConfig: 
+        # LogsConfig
+      Name: lambda-code-build
+      # QueuedTimeoutInMinutes: Integer
+      # SecondaryArtifacts: 
+      #   - Artifacts
+      # SecondarySources: 
+      #   - Source
+      # SecondarySourceVersions: 
+      #   - ProjectSourceVersion
+      ServiceRole: !Ref CodePipelineProjectRole
+      Source: 
+        # # Auth: 
+        # #   SourceAuth
+        # # BuildSpec: String
+        # # BuildStatusConfig: 
+        # #   BuildStatusConfig
+        # # GitCloneDepth: Integer
+        # GitSubmodulesConfig: 
+        #   GitSubmodulesConfig
+        # InsecureSsl: Boolean
+        # Location: String
+        # ReportBuildStatus: Boolean
+        # SourceIdentifier: String
+        Type: CODEPIPELINE
+      # SourceVersion: String
+      # Tags: 
+      #   - Tag
+      # TimeoutInMinutes: Integer
+      # Triggers: 
+      #   ProjectTriggers
+      # VpcConfig: 
+      #   VpcConfig
+
+
+  LambdaPipelineAccess:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'Role for codepipeline'
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      RoleName: 'LambdaPipelineRole'
+
+  LambdaPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties: 
+      ArtifactStore: 
+        # EncryptionKey: 
+        #   EncryptionKey
+        Location: lambda-bucket-assignment2
+        Type: S3        
+      # ArtifactStores: 
+      #   - ArtifactStoreMap
+      # DisableInboundStageTransitions: 
+      #   - StageTransition
+      Name: lamdba-pipeline
+      RestartExecutionOnUpdate: false
+      RoleArn: !GetAtt LambdaPipelineAccess.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1  
+              Configuration: {
+                "Owner": !Ref GitHubOwner,
+                "Repo": !Ref GitHubRepo,
+                "Branch": !Ref GitHubBranch,
+                "OAuthToken": !Ref GitHubOAuthToken,
+              }
+              OutputArtifacts:
+                - Name: 'voice-controlled-app'
+              Region: us-east-1
+        - Name: Build
+          Actions: 
+            - Name: Build
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration: {
+                "ProjectName": {"Ref": "CodeBuildProject"}
+              }
+              InputArtifacts: 
+                - Name: 'voice-controlled-app'
+              # Namespace: String
+              OutputArtifacts: 
+                - Name: 'voice-controlled-app-output'
+              Region: us-east-1
+              # RoleArn: String
+              # RunOrder: Integer
+          # Blockers: 
+          #   - BlockerDeclaration
+        - Name: Deploy 
+          Actions: 
+            - Name: Deploy
+              ActionTypeId: 
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration: {
+                "ActionMode": "CREATE_UPDATE",
+                "StackName": "voicePhotoAlbumStack",
+                "Capabilities": "CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND",
+                "RoleArn": { "Fn::GetAtt" : [ "CodePipelineProjectRole", "Arn" ] },
+                "TemplatePath": "BuildArtifact::outputsamtemplate.yml"
+              }
+              InputArtifacts: 
+                - Name: 'voice-controlled-app'
+              # Namespace: String
+              # OutputArtifacts: 
+              #   - OutputArtifact
+              Region: us-east-1
+              # RoleArn: String
+              # RunOrder: Integer
+          # Blockers: 
+          #   - BlockerDeclaration
+

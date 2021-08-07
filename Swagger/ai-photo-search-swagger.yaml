@@ -1,0 +1,93 @@
+swagger: '2.0'
+info:
+  title: AI Photo Search
+  description: 'AI Photo Search application, built during the Cloud and Big Data course at Columbia University.'
+  version: 1.0.0
+schemes:
+  - https
+basePath: /v1
+produces:
+  - application/json
+paths:
+  /search:
+    get:
+      x-amazon-apigateway-integration:
+        httpMethod: POST
+        type: aws_proxy
+        uri: 'arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:996208533033:function:Assignment2_LF2/invocations'
+      summary: photo search method
+      description: |
+        This API takes in a search query as a query parameter and returns zero or more photos that match the search query.
+      operationId: searchPhotos
+      parameters:
+        - in: query
+          name: q
+          type: string
+          description: the string to be searched
+      produces:
+        - application/json
+      responses:
+        '200':
+          description: search results
+          schema:
+            $ref: '#/definitions/SearchResponse'
+        '403':
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/Error'
+        '500':
+          description: Unexpected error
+          schema:
+            $ref: '#/definitions/Error'
+    options:
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      responses:
+        "200":
+          description: "200 response"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+            Access-Control-Allow-Methods:
+              type: "string"
+            Access-Control-Allow-Headers:
+              type: "string"
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        passthroughBehavior: "when_no_match"
+        type: "mock"    
+definitions:
+  SearchResponse:
+    type: object
+    properties:
+      results:
+        type: array
+        items:
+          $ref: '#/definitions/Photo'
+  Photo:
+    type: object
+    properties:
+      url:
+        type: string
+      labels:
+        type: array
+        items:
+          type: string
+  Error:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string

@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: The infrastructure for voice-controlled photo album.
+Parameters:
+  S3BucketNameB2:
+    Description: The name of the S3 bucket to be created.
+    Type: String
+    Default: index-photos-bucket-b2
+  S3BucketNameB1:
+    Description: The name of the S3 bucket for storing the front end.
+    Type: String
+    Default: frontend-s3-b1
+  GitHubOwner:
+    Type: String
+    Default: phananh1096
+    AllowedPattern: "[A-Za-z0-9-]+"
+  GitHubRepo:
+    Type: String
+    Default: A2-Frontend 
+    AllowedPattern: "[A-Za-z0-9-]+"
+  GitHubBranch:
+    Type: String
+    Default: main
+    AllowedPattern: "[A-Za-z0-9-]+"
+  GitHubOAuthToken:
+    Type: String
+    Default: '2b811ae58dcf52fa7cd184ba29913137916248ba'
+    NoEcho: true
+    MinLength: 40
+    MaxLength: 40
+    AllowedPattern: '[a-z0-9]*'
+Resources:
+  # Frontend bucket for static website hosting
+  FrontendS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead 
+      BucketName: !Ref S3BucketNameB1
+      WebsiteConfiguration: 
+        IndexDocument: chat.html
+  FrontendS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: PublicAccessForWebsite
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref FrontendS3Bucket
+                - /*
+      Bucket: !Ref FrontendS3Bucket
+  FrontEndPipelineAccessToS3:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'Role for codepipeline to access S3'
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      RoleName: 'CodePipelineC1toS3'
+  FrontendCodePipelineToS3:
+    Type: AWS::CodePipeline::Pipeline
+    Properties: 
+      ArtifactStore: 
+        Location: lambda-bucket-assignment2
+        Type: S3        
+      Name: frontend-code-s3
+      RestartExecutionOnUpdate: false
+      RoleArn: !GetAtt FrontEndPipelineAccessToS3.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1  
+              Configuration: {
+                "Owner": !Ref GitHubOwner,
+                "Repo": !Ref GitHubRepo,
+                "Branch": !Ref GitHubBranch,
+                "OAuthToken": !Ref GitHubOAuthToken,
+              }
+              OutputArtifacts:
+                - Name: 'voice-controlled-app'
+              Region: us-east-1
+        - Name: Deploy 
+          Actions: 
+            - Name: Deploy
+              ActionTypeId: 
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: 1
+              Configuration: {
+                "BucketName": {"Ref": "FrontendS3Bucket"},
+                "Extract": "true"
+              }
+              InputArtifacts: 
+                - Name: 'voice-controlled-app'
+              Region: us-east-1
+
